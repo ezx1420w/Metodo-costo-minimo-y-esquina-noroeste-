@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Problema de Transporte - Método de la Esquina Noroeste</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div class="contenedor">
+        
+        <!-- ENCABEZADO -->
+        <header class="encabezado">
+            <h1>Problema de Transporte</h1>
+            <p class="subtitulo">Método del Costo Mínimo - 7º 3º</p>
+            <p class="alumnos">Alumnos: Ezequiel, Veronica, Samaniego, Aguirre</p>
+        </header>
+
+        <!-- SECCIÓN 1: DIMENSIONES -->
+        <div class="panel">
+            <h3>1. Dimensiones de la tabla</h3>
+            <div class="fila-inputs">
+                <label>Orígenes: <input type="number" id="rows" min="1" placeholder="Ej: 3"></label>
+                <label>Destinos: <input type="number" id="cols" min="1" placeholder="Ej: 4"></label>
+            </div>
+            <div class="fila-botones">
+                <button class="btn btn-principal" onclick="generarTabla()">Crear Tabla</button>
+                <button class="btn" onclick="cargarEjemplo(false)">Cargar Ejemplo</button>
+                <button class="btn" onclick="cargarEjemplo(true)">Cargar Desbalanceado</button>
+                <button class="btn btn-borrar" onclick="reiniciarTodo()">Reiniciar</button>
+            </div>
+        </div>
+
+        <!-- ALERTAS Y ESTADO DE BALANCE -->
+        <div id="mensaje-alerta" class="alerta" style="display: none;"></div>
+        <div id="banner-balance" class="banner-status" style="display: none;"></div>
+
+        <!-- CONTENEDOR DE LA MATRIZ -->
+        <div id="contenedor-tabla"></div>
+
+        <!-- SECCIÓN 2: RESOLUCIÓN -->
+        <div id="controles-solucion" class="panel" style="display: none;">
+            <h3>2. Método de resolución</h3>
+            <div class="opciones-metodo">
+                <label><input type="radio" name="metodo" value="costominimo" checked> Costo Mínimo</label>
+                <label><input type="radio" name="metodo" value="noroeste"> Esquina Noroeste</label>
+            </div>
+            <div class="acciones-resolver">
+                <button class="btn btn-resolver" onclick="resolver()">Resolver Problema</button>
+            </div>
+        </div>
+
+        <!-- RESULTADOS -->
+        <div id="resultado"></div>
+
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
