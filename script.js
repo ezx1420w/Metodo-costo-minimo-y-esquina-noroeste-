@@ -1,905 +1,951 @@
-/**
- * RESOLUCIÓN DE PROBLEMAS DE TRANSPORTE
- * Método de la Esquina Noroeste (con Balanceo Automático por Fila/Columna Ficticia)
- * Asignatura: Investigación Operativa / Modelos de Transporte
- * Curso: 7º 3º
- * Autores: Ezequiel, Veronica, Samaniego, Aguirre
- */
+/* ==========================================================================
+   PROBLEMA DE TRANSPORTE - 7° 3°
+   Alumnos: Ezequiel, Veronica, Samaniego, Aguirre
 
-// Estado global de la aplicación
-const AppState = {
-    rows: 0,
-    cols: 0,
-    costos: [],
-    oferta: [],
-    demanda: []
-};
+   MÉTODOS IMPLEMENTADOS:
+     - Esquina Noroeste   -> resolverEsquinaNoroeste()   (linea ~180)
+     - Costo Mínimo       -> resolverCostoMinimo()       (linea ~270)
+     - Metodo de Vogel    -> resolverVogel()             (linea ~360)
 
-// Inicialización de la aplicación
-document.addEventListener('DOMContentLoaded', () => {
-    const inputRows = document.getElementById('rows');
-    const inputCols = document.getElementById('cols');
+   ESTRUCTURA DEL ARCHIVO (secciones en orden):
+     0. Inicialización y listeners (DOMContentLoaded)
+     1. Armado dinámico de la tabla de entrada
+     2. Validación de datos y balanceo automático (fila/columna ficticia)
+     3. Función coordinadora: resolverProblema()
+     ---- ALGORITMOS ----
+     4. ESQUINA NOROESTE
+     5. COSTO MÍNIMO
+     6. MÉTODO DE VOGEL
+     ---- VISUALIZACIÓN ----
+     7. Renderizado de resultados (compartido por los 3 métodos)
+     8. Funciones auxiliares (alertas, reinicio, utilidades)
+   ========================================================================== */
 
-    [inputRows, inputCols].forEach(input => {
-        if (input) {
-            input.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') generarTabla();
-            });
-        }
+
+/* ==========================================================================
+   VARIABLES GLOBALES
+   ========================================================================== */
+
+// Dimensiones de la tabla que el usuario generó en pantalla
+let totalFilas = 0;
+let totalColumnas = 0;
+
+
+/* ==========================================================================
+   0. INICIALIZACIÓN — conectamos botones y teclas con addEventListener
+   ========================================================================== */
+
+document.addEventListener("DOMContentLoaded", () => {
+    const inputFilas    = document.getElementById("input-filas");
+    const inputColumnas = document.getElementById("input-columnas");
+    const btnCrear          = document.getElementById("btn-crear");
+    const btnEjemplo        = document.getElementById("btn-ejemplo");
+    const btnDesbalanceado  = document.getElementById("btn-desbalanceado");
+    const btnReiniciar      = document.getElementById("btn-reiniciar");
+    const btnResolver       = document.getElementById("btn-resolver");
+
+    // Usamos addEventListener en todos los botones (ningún onclick en el HTML)
+    btnCrear.addEventListener("click", generarTabla);
+    btnEjemplo.addEventListener("click", () => cargarEjemplo(false));
+    btnDesbalanceado.addEventListener("click", () => cargarEjemplo(true));
+    btnReiniciar.addEventListener("click", reiniciarTodo);
+    btnResolver.addEventListener("click", resolverProblema);
+
+    // Atajo de teclado: Enter en los campos de filas/columnas genera la tabla
+    [inputFilas, inputColumnas].forEach((input) => {
+        input.addEventListener("keydown", (evento) => {
+            if (evento.key === "Enter") generarTabla();
+        });
     });
 });
 
-/**
- * Genera dinámicamente la tabla interactiva de costos, oferta y demanda
- */
+
+/* ==========================================================================
+   1. ARMADO DINÁMICO DE LA TABLA DE ENTRADA
+   ========================================================================== */
+
 function generarTabla() {
-    const inputRows = document.getElementById('rows');
-    const inputCols = document.getElementById('cols');
-    const R = parseInt(inputRows.value);
-    const C = parseInt(inputCols.value);
+    const filas    = parseInt(document.getElementById("input-filas").value, 10);
+    const columnas = parseInt(document.getElementById("input-columnas").value, 10);
 
     limpiarAlerta();
     limpiarResultado();
 
-    // Validaciones de dimensiones
-    if (isNaN(R) || isNaN(C)) {
-        mostrarAlerta('Por favor, ingresa tanto la cantidad de orígenes como de destinos.', 'error');
+    if (isNaN(filas) || isNaN(columnas)) {
+        mostrarAlerta("Ingresá la cantidad de orígenes y destinos.", "error");
         return;
     }
-
-    if (R < 1 || C < 1) {
-        mostrarAlerta('La cantidad de orígenes y destinos debe ser como mínimo 1.', 'error');
+    if (filas < 1 || columnas < 1) {
+        mostrarAlerta("Tiene que haber como mínimo 1 origen y 1 destino.", "error");
         return;
     }
-
-    if (R > 15 || C > 15) {
-        mostrarAlerta('Por razones de legibilidad, el límite sugerido es de hasta 15 orígenes y 15 destinos.', 'warning');
+    if (filas > 15 || columnas > 15) {
+        mostrarAlerta("Se recomienda usar hasta 15 filas y 15 columnas para ver bien la tabla.", "warning");
     }
 
-    AppState.rows = R;
-    AppState.cols = C;
+    totalFilas    = filas;
+    totalColumnas = columnas;
 
-    // Estructura de la tabla
+    // Construimos el HTML de la tabla con for anidados
     let html = `
-        <div class="tabla-responsiva">
-            <table class="matriz-datos">
+        <div class="tabla-scroll">
+            <table>
                 <thead>
                     <tr>
-                        <th class="th-esquina">Orígenes \\ Destinos</th>
+                        <th>Origenes \\ Destinos</th>
     `;
 
-    for (let j = 0; j < C; j++) {
-        html += `<th class="th-destino">D${j + 1}</th>`;
+    for (let j = 0; j < columnas; j++) {
+        html += `<th>D${j + 1}</th>`;
     }
-    html += `<th class="th-oferta">Oferta ($S_i$)</th></tr></thead><tbody>`;
+    html += `<th>Oferta</th></tr></thead><tbody>`;
 
-    // Filas de orígenes con costos y oferta
-    for (let i = 0; i < R; i++) {
-        html += `<tr><th class="th-origen">O${i + 1}</th>`;
-        for (let j = 0; j < C; j++) {
+    // Una fila por cada origen (O1, O2...) con sus costos y su oferta al final
+    for (let i = 0; i < filas; i++) {
+        html += `<tr><th>O${i + 1}</th>`;
+
+        for (let j = 0; j < columnas; j++) {
+            // data-fila y data-col permiten recuperar cada costo con querySelector
             html += `
-                <td class="td-costo">
-                    <div class="input-grupo-costo">
-                        <span class="costo-prefijo">$</span>
-                        <input type="number" min="0" step="any" class="input-celda input-costo" 
-                               data-r="${i}" data-c="${j}" placeholder="0" value="0">
+                <td>
+                    <div class="celda-costo-wrap">
+                        <span class="prefijo-peso">$</span>
+                        <input type="number" min="0" step="any" class="input-celda input-costo"
+                               data-fila="${i}" data-col="${j}" value="0">
                     </div>
                 </td>
             `;
         }
+
         html += `
-            <td class="td-oferta">
-                <input type="number" min="0" step="any" class="input-celda input-supply" 
-                       id="s${i}" data-r="${i}" placeholder="Oferta ${i + 1}" oninput="actualizarBalanceEnVivo()">
+            <td>
+                <input type="number" min="0" step="any" class="input-celda input-oferta"
+                       id="oferta-${i}" placeholder="O${i + 1}">
             </td>
         </tr>`;
     }
 
-    // Fila inferior de demandas
-    html += `<tr><th class="th-demanda-label">Demanda ($D_j$)</th>`;
-    for (let j = 0; j < C; j++) {
+    // Última fila: demandas de cada destino + celda de control de balance en vivo
+    html += `<tr><th>Demanda</th>`;
+    for (let j = 0; j < columnas; j++) {
         html += `
-            <td class="td-demanda">
-                <input type="number" min="0" step="any" class="input-celda input-demand" 
-                       id="d${j}" data-c="${j}" placeholder="Demanda ${j + 1}" oninput="actualizarBalanceEnVivo()">
+            <td>
+                <input type="number" min="0" step="any" class="input-celda input-demanda"
+                       id="demanda-${j}" placeholder="D${j + 1}">
             </td>
         `;
     }
-
-    // Celda de resumen de balance en vivo
     html += `
-            <td class="td-balance-resumen" id="balance-live-celda" title="Total Oferta / Total Demanda">
-                <span id="txt-balance-live">Σ = 0 / 0</span>
-            </td>
+            <td id="celda-balance" class="celda-balance">O: 0<br>D: 0</td>
         </tr>
         </tbody>
         </table>
     </div>`;
 
-    document.getElementById('contenedor-tabla').innerHTML = html;
-    document.getElementById('controles-solucion').style.display = 'block';
+    const contenedorTabla = document.getElementById("contenedor-tabla");
+    contenedorTabla.innerHTML = html;
 
-    document.getElementById('contenedor-tabla').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    // Mostramos el panel 2 (método + botón resolver)
+    document.getElementById("panel-metodo").classList.remove("oculto");
+
+    // Escuchamos el evento "input" en cada campo de oferta y demanda para actualizar el balance
+    const inputsBalance = contenedorTabla.querySelectorAll(".input-oferta, .input-demanda");
+    inputsBalance.forEach((inp) => {
+        inp.addEventListener("input", actualizarBalanceEnVivo);
+    });
+
     actualizarBalanceEnVivo();
 }
 
-/**
- * Calcula y muestra el estado de balance en vivo mientras el usuario teclea
- */
+// Suma oferta y demanda mientras el usuario escribe y muestra si están equilibradas
 function actualizarBalanceEnVivo() {
-    const R = AppState.rows;
-    const C = AppState.cols;
-    if (R === 0 || C === 0) return;
+    if (totalFilas === 0 || totalColumnas === 0) return;
 
-    let totalO = 0;
-    let totalD = 0;
+    let sumaOferta  = 0;
+    let sumaDemanda = 0;
 
-    for (let i = 0; i < R; i++) {
-        const val = parseFloat(document.getElementById(`s${i}`)?.value);
-        if (!isNaN(val) && val >= 0) totalO += val;
+    for (let i = 0; i < totalFilas; i++) {
+        const v = parseFloat(document.getElementById(`oferta-${i}`).value);
+        if (!isNaN(v) && v >= 0) sumaOferta = redondear(sumaOferta + v);
+    }
+    for (let j = 0; j < totalColumnas; j++) {
+        const v = parseFloat(document.getElementById(`demanda-${j}`).value);
+        if (!isNaN(v) && v >= 0) sumaDemanda = redondear(sumaDemanda + v);
     }
 
-    for (let j = 0; j < C; j++) {
-        const val = parseFloat(document.getElementById(`d${j}`)?.value);
-        if (!isNaN(val) && val >= 0) totalD += val;
+    const celdaBalance  = document.getElementById("celda-balance");
+    const bannerBalance = document.getElementById("estado-balance");
+
+    if (celdaBalance) {
+        celdaBalance.innerHTML = `O: <b>${sumaOferta}</b><br>D: <b>${sumaDemanda}</b>`;
     }
 
-    const celda = document.getElementById('balance-live-celda');
-    const txt = document.getElementById('txt-balance-live');
-    const banner = document.getElementById('banner-balance');
+    if (sumaOferta > 0 && sumaDemanda > 0) {
+        bannerBalance.classList.remove("oculto");
 
-    if (celda && txt) {
-        txt.innerHTML = `O: <b>${totalO}</b><br>D: <b>${totalD}</b>`;
-
-        if (totalO > 0 && totalD > 0) {
-            if (totalO === totalD) {
-                celda.className = 'td-balance-resumen balance-ok';
-                if (banner) {
-                    banner.className = 'banner-status banner-ok';
-                    banner.innerHTML = `✓ Problema Equilibrado: Oferta Total (${totalO}) = Demanda Total (${totalD})`;
-                    banner.style.display = 'block';
-                }
-            } else {
-                celda.className = 'td-balance-resumen balance-info-ajuste';
-                if (banner) {
-                    const dif = Math.abs(totalO - totalD);
-                    const elemento = totalO > totalD ? 'Columna Ficticia (Destino Ficticio)' : 'Fila Ficticia (Origen Ficticio)';
-                    banner.className = 'banner-status banner-info-ficticio';
-                    banner.innerHTML = `ℹ Falta de Coincidencia: Oferta (${totalO}) ≠ Demanda (${totalD}) | Al resolver, se creará automáticamente una <b>${elemento}</b> de <b>${dif} unidades</b> con costo $0.`;
-                    banner.style.display = 'block';
-                }
-            }
+        if (sumaOferta === sumaDemanda) {
+            celdaBalance.className  = "celda-balance celda-balance-ok";
+            bannerBalance.className = "estado-balance balance-ok";
+            bannerBalance.textContent = `Tabla equilibrada: Oferta total (${sumaOferta}) = Demanda total (${sumaDemanda}).`;
         } else {
-            celda.className = 'td-balance-resumen';
-            if (banner) banner.style.display = 'none';
+            const dif             = redondear(Math.abs(sumaOferta - sumaDemanda));
+            const queSeAgrega     = sumaOferta > sumaDemanda ? "una columna ficticia" : "una fila ficticia";
+            celdaBalance.className  = "celda-balance celda-balance-ajuste";
+            bannerBalance.className = "estado-balance balance-ajuste";
+            bannerBalance.textContent = `Tabla desbalanceada: Oferta (${sumaOferta}) y Demanda (${sumaDemanda}). Al resolver se agregará ${queSeAgrega} de ${dif} unidades con costo $0.`;
         }
+    } else {
+        if (celdaBalance) celdaBalance.className = "celda-balance";
+        bannerBalance.classList.add("oculto");
     }
 }
 
-/**
- * Carga un ejemplo típico de prueba
- * @param {boolean} desbalanceado - Si es true, carga un caso desbalanceado para demostrar la creación de elementos ficticios
- */
-function cargarEjemplo(desbalanceado = false) {
-    document.getElementById('rows').value = 3;
-    document.getElementById('cols').value = 4;
+// Carga un caso 3x4 de prueba (equilibrado o desbalanceado) para usar en la exposición
+function cargarEjemplo(desbalanceado) {
+    document.getElementById("input-filas").value    = 3;
+    document.getElementById("input-columnas").value = 4;
     generarTabla();
 
-    // Costos de ejemplo
-    const matrizEjemplo = [
-        [10, 2, 20, 11],
-        [12, 7,  9, 20],
+    const costosEj = [
+        [10,  2, 20, 11],
+        [12,  7,  9, 20],
         [ 4, 14, 16, 18]
     ];
+    // Desbalanceado: Oferta = 65, Demanda = 50 -> se creará columna ficticia D5
+    const ofertasEj  = desbalanceado ? [25, 25, 15] : [15, 25, 10];
+    const demandasEj = [5, 15, 15, 15];
 
-    let ofertasEjemplo = [15, 25, 10]; // Suma = 50
-    let demandasEjemplo = [5, 15, 15, 15]; // Suma = 50
-
-    if (desbalanceado) {
-        // Caso desbalanceado: Oferta = 65, Demanda = 50 (Exceso de 15 unidades en Oferta -> Creará Columna Ficticia)
-        ofertasEjemplo = [25, 25, 15]; // Suma = 65
-    }
-
-    // Rellenar costos
     for (let i = 0; i < 3; i++) {
         for (let j = 0; j < 4; j++) {
-            const input = document.querySelector(`.input-costo[data-r="${i}"][data-c="${j}"]`);
-            if (input) input.value = matrizEjemplo[i][j];
+            const inp = document.querySelector(`.input-costo[data-fila="${i}"][data-col="${j}"]`);
+            if (inp) inp.value = costosEj[i][j];
         }
-        const sInput = document.getElementById(`s${i}`);
-        if (sInput) sInput.value = ofertasEjemplo[i];
+        document.getElementById(`oferta-${i}`).value = ofertasEj[i];
     }
-
-    // Rellenar demandas
     for (let j = 0; j < 4; j++) {
-        const dInput = document.getElementById(`d${j}`);
-        if (dInput) dInput.value = demandasEjemplo[j];
+        document.getElementById(`demanda-${j}`).value = demandasEj[j];
     }
 
     actualizarBalanceEnVivo();
-
-    if (desbalanceado) {
-        mostrarAlerta('Ejemplo Desbalanceado cargado (Oferta: 65, Demanda: 50). Al hacer clic en "Resolver", se creará automáticamente una Columna Ficticia de 15 unidades con costo $0.', 'info');
-    } else {
-        mostrarAlerta('Ejemplo Equilibrado cargado (3 orígenes × 4 destinos, 50 unidades). Haz clic en "Resolver" para ver los resultados.', 'info');
-    }
+    mostrarAlerta(
+        desbalanceado
+            ? "Ejemplo desbalanceado cargado (Oferta: 65, Demanda: 50). Al resolver se creara la columna ficticia D5."
+            : "Ejemplo equilibrado cargado (3 origenes x 4 destinos, total 50 unidades).",
+        "info"
+    );
 }
 
-/**
- * Obtiene y valida los datos de la matriz.
- * Si la oferta y la demanda no coinciden, genera automáticamente la fila o columna ficticia correspondiente.
- */
-function obtenerYValidarDatos() {
-    const R = AppState.rows;
-    const C = AppState.cols;
 
-    if (R <= 0 || C <= 0) {
-        return { valido: false, mensaje: 'Primero debes generar la tabla de datos ingresando las dimensiones.' };
+/* ==========================================================================
+   2. VALIDACIÓN DE DATOS Y BALANCEO AUTOMÁTICO (FILA O COLUMNA FICTICIA)
+
+   Esta función lee la tabla, valida todos los campos y, si la oferta y la
+   demanda no coinciden, agrega automáticamente:
+     - Columna ficticia (Dj extra) si Oferta > Demanda
+     - Fila ficticia   (Oi extra) si Demanda > Oferta
+   En ambos casos los costos de la fila/columna ficticia son $0.
+   ========================================================================== */
+
+function leerYBalancearDatos() {
+    if (totalFilas <= 0 || totalColumnas <= 0) {
+        return { valido: false, mensaje: "Primero tenes que crear la tabla." };
     }
 
-    let costos = [];
-    let oferta = [];
-    let demanda = [];
+    const oferta  = [];
+    const demanda = [];
+    const costos  = [];
 
-    // Validar y leer ofertas
-    for (let i = 0; i < R; i++) {
-        const raw = document.getElementById(`s${i}`)?.value.trim();
-        if (raw === '' || isNaN(Number(raw))) {
-            return { valido: false, mensaje: `Falta ingresar un valor numérico para la oferta del Origen O${i + 1}.` };
+    // --- Leer y validar ofertas ---
+    for (let i = 0; i < totalFilas; i++) {
+        const txt = document.getElementById(`oferta-${i}`).value.trim();
+        if (txt === "" || isNaN(Number(txt))) {
+            return { valido: false, mensaje: `Falta completar la oferta del origen O${i + 1}.` };
         }
-        const val = parseFloat(raw);
-        if (val < 0) {
-            return { valido: false, mensaje: `La oferta del Origen O${i + 1} no puede ser un número negativo (${val}).` };
-        }
-        oferta.push(val);
+        const v = parseFloat(txt);
+        if (v < 0) return { valido: false, mensaje: `La oferta de O${i + 1} no puede ser negativa.` };
+        oferta.push(v);
     }
 
-    // Validar y leer demandas
-    for (let j = 0; j < C; j++) {
-        const raw = document.getElementById(`d${j}`)?.value.trim();
-        if (raw === '' || isNaN(Number(raw))) {
-            return { valido: false, mensaje: `Falta ingresar un valor numérico para la demanda del Destino D${j + 1}.` };
+    // --- Leer y validar demandas ---
+    for (let j = 0; j < totalColumnas; j++) {
+        const txt = document.getElementById(`demanda-${j}`).value.trim();
+        if (txt === "" || isNaN(Number(txt))) {
+            return { valido: false, mensaje: `Falta completar la demanda del destino D${j + 1}.` };
         }
-        const val = parseFloat(raw);
-        if (val < 0) {
-            return { valido: false, mensaje: `La demanda del Destino D${j + 1} no puede ser un número negativo (${val}).` };
-        }
-        demanda.push(val);
+        const v = parseFloat(txt);
+        if (v < 0) return { valido: false, mensaje: `La demanda de D${j + 1} no puede ser negativa.` };
+        demanda.push(v);
     }
 
-    // Validar y leer matriz de costos
-    for (let i = 0; i < R; i++) {
-        let filaCostos = [];
-        for (let j = 0; j < C; j++) {
-            const input = document.querySelector(`.input-costo[data-r="${i}"][data-c="${j}"]`);
-            const raw = input?.value.trim();
-            if (raw === '' || isNaN(Number(raw))) {
-                return { valido: false, mensaje: `Falta ingresar un costo válido en la celda (O${i + 1}, D${j + 1}).` };
+    // --- Leer y validar matriz de costos ---
+    for (let i = 0; i < totalFilas; i++) {
+        const fila = [];
+        for (let j = 0; j < totalColumnas; j++) {
+            const inp = document.querySelector(`.input-costo[data-fila="${i}"][data-col="${j}"]`);
+            const txt = inp.value.trim();
+            if (txt === "" || isNaN(Number(txt))) {
+                return { valido: false, mensaje: `Falta ingresar el costo en (O${i + 1}, D${j + 1}).` };
             }
-            const val = parseFloat(raw);
-            if (val < 0) {
-                return { valido: false, mensaje: `El costo de transporte de (O${i + 1}, D${j + 1}) no puede ser negativo (${val}).` };
-            }
-            filaCostos.push(val);
+            const v = parseFloat(txt);
+            if (v < 0) return { valido: false, mensaje: `El costo de (O${i + 1}, D${j + 1}) no puede ser negativo.` };
+            fila.push(v);
         }
-        costos.push(filaCostos);
+        costos.push(fila);
     }
 
-    const totalO = oferta.reduce((acc, curr) => acc + curr, 0);
-    const totalD = demanda.reduce((acc, curr) => acc + curr, 0);
+    let totalOferta  = 0;
+    let totalDemanda = 0;
+    for (const v of oferta)  totalOferta  = redondear(totalOferta  + v);
+    for (const v of demanda) totalDemanda = redondear(totalDemanda + v);
 
-    if (totalO === 0 && totalD === 0) {
-        return { valido: false, mensaje: 'La oferta y demanda totales deben ser mayores que cero.' };
+    if (totalOferta === 0 && totalDemanda === 0) {
+        return { valido: false, mensaje: "La oferta y la demanda totales tienen que ser mayores a cero." };
     }
 
-    // =========================================================================
-    // GESTIÓN DE BALANCEO AUTOMÁTICO (FILA O COLUMNA FICTICIA)
-    // =========================================================================
+    // Copiamos arreglos para no modificar los originales al agregar ficticio
+    let filasFinal    = totalFilas;
+    let columnasFinal = totalColumnas;
+    const costosFinal  = costos.map((f) => [...f]);
+    const ofertaFinal  = [...oferta];
+    const demandaFinal = [...demanda];
     let ajusteFicticio = null;
-    let matrizCostosFinal = costos.map(fila => [...fila]);
-    let ofertaFinal = [...oferta];
-    let demandaFinal = [...demanda];
-    let filasFinales = R;
-    let colsFinales = C;
 
-    const diferencia = Math.abs(totalO - totalD);
+    const diferencia = redondear(Math.abs(totalOferta - totalDemanda));
 
     if (diferencia > 0.000001) {
-        if (totalO > totalD) {
-            // Oferta mayor que Demanda: Se crea COLUMNA FICTICIA (Destino Ficticio)
-            colsFinales = C + 1;
+        if (totalOferta > totalDemanda) {
+            // Oferta > Demanda -> agregar columna ficticia (nuevo destino con demanda = diferencia)
+            columnasFinal = totalColumnas + 1;
             demandaFinal.push(diferencia);
-            
-            // Todos los orígenes tienen costo 0 hacia el destino ficticio
-            for (let i = 0; i < R; i++) {
-                matrizCostosFinal[i].push(0);
-            }
+            for (let i = 0; i < totalFilas; i++) costosFinal[i].push(0);
 
             ajusteFicticio = {
-                tipo: 'columna',
-                indice: C, // Índice 0-based de la columna ficticia
-                nombre: `D${C + 1} (Ficticio)`,
+                tipo: "columna",
+                indice: totalColumnas,          // indice 0-based de la columna ficticia
+                nombre: `D${totalColumnas + 1}`,
                 cantidad: diferencia,
-                costo: 0,
-                totalOOriginal: totalO,
-                totalDOriginal: totalD,
-                comentario: `La Oferta Total original (${totalO}) era mayor que la Demanda Total original (${totalD}) por una diferencia de ${diferencia} unidades. Fue necesaria la creación de una Columna Ficticia (Destino D${C + 1}) con requerimiento de ${diferencia} unidades y costos unitarios de envío en $0 para nivelar el problema y posibilitar la resolución por el Método de la Esquina Noroeste.`
+                totalOfertaOriginal:  totalOferta,
+                totalDemandaOriginal: totalDemanda,
+                explicacion: `La oferta total (${totalOferta}) superaba a la demanda total (${totalDemanda}) por ${diferencia} unidades. Se agrego la columna ficticia D${totalColumnas + 1} con demanda ${diferencia} y costos en $0 para equilibrar la tabla.`
             };
         } else {
-            // Demanda mayor que Oferta: Se crea FILA FICTICIA (Origen Ficticio)
-            filasFinales = R + 1;
+            // Demanda > Oferta -> agregar fila ficticia (nuevo origen con oferta = diferencia)
+            filasFinal = totalFilas + 1;
             ofertaFinal.push(diferencia);
-
-            // El origen ficticio tiene costo 0 hacia todos los destinos
-            const filaCeros = new Array(C).fill(0);
-            matrizCostosFinal.push(filaCeros);
+            const filaCeros = new Array(totalColumnas).fill(0);
+            costosFinal.push(filaCeros);
 
             ajusteFicticio = {
-                tipo: 'fila',
-                indice: R, // Índice 0-based de la fila ficticia
-                nombre: `O${R + 1} (Ficticio)`,
+                tipo: "fila",
+                indice: totalFilas,             // indice 0-based de la fila ficticia
+                nombre: `O${totalFilas + 1}`,
                 cantidad: diferencia,
-                costo: 0,
-                totalOOriginal: totalO,
-                totalDOriginal: totalD,
-                comentario: `La Demanda Total original (${totalD}) era mayor que la Oferta Total original (${totalO}) por una diferencia de ${diferencia} unidades. Fue necesaria la creación de una Fila Ficticia (Origen O${R + 1}) con capacidad de ${diferencia} unidades y costos unitarios de envío en $0 para nivelar el problema y posibilitar la resolución por el Método de la Esquina Noroeste.`
+                totalOfertaOriginal:  totalOferta,
+                totalDemandaOriginal: totalDemanda,
+                explicacion: `La demanda total (${totalDemanda}) superaba a la oferta total (${totalOferta}) por ${diferencia} unidades. Se agrego la fila ficticia O${totalFilas + 1} con oferta ${diferencia} y costos en $0 para equilibrar la tabla.`
             };
         }
     }
 
     return {
         valido: true,
-        R_original: R,
-        C_original: C,
-        R_final: filasFinales,
-        C_final: colsFinales,
-        costosOriginales: costos,
-        matrizCostosFinal,
-        ofertaOriginal: oferta,
-        demandaOriginal: demanda,
-        ofertaFinal,
-        demandaFinal,
-        totalOOriginal: totalO,
-        totalDOriginal: totalD,
-        totalEquilibrado: Math.max(totalO, totalD),
+        filasFinal,
+        columnasFinal,
+        costos: costosFinal,
+        oferta: ofertaFinal,
+        demanda: demandaFinal,
+        totalEquilibrado: Math.max(totalOferta, totalDemanda),
         ajusteFicticio
     };
 }
 
-/**
- * Función principal que orquesta la resolución
- */
-function resolver() {
+
+/* ==========================================================================
+   3. FUNCIÓN COORDINADORA: resolverProblema()
+   Lee el radio seleccionado y llama al algoritmo correspondiente.
+   ========================================================================== */
+
+function resolverProblema() {
     limpiarAlerta();
     limpiarResultado();
 
-    const validacion = obtenerYValidarDatos();
-
-    if (!validacion.valido) {
-        mostrarAlerta(validacion.mensaje, 'error');
+    const datos = leerYBalancearDatos();
+    if (!datos.valido) {
+        mostrarAlerta(datos.mensaje, "error");
         return;
     }
 
-    const metodoSeleccionado = document.querySelector('input[name="metodo"]:checked')?.value || 'noroeste';
+    const radio  = document.querySelector('input[name="metodo"]:checked');
+    const metodo = radio ? radio.value : "costominimo";
 
     let solucion;
-    let nombreMetodo = '';
+    let nombreMetodo;
 
-    if (metodoSeleccionado === 'noroeste') {
-        nombreMetodo = 'Método de la Esquina Noroeste';
-        solucion = ejecutarEsquinaNoroeste(
-            validacion.R_final, 
-            validacion.C_final, 
-            validacion.matrizCostosFinal, 
-            validacion.ofertaFinal, 
-            validacion.demandaFinal, 
-            validacion.ajusteFicticio
+    if (metodo === "noroeste") {
+        nombreMetodo = "Metodo de la Esquina Noroeste";
+        solucion = resolverEsquinaNoroeste(
+            datos.filasFinal, datos.columnasFinal,
+            datos.costos, datos.oferta, datos.demanda,
+            datos.ajusteFicticio
         );
+
+    } else if (metodo === "vogel") {
+        nombreMetodo = "Metodo de Vogel";
+        solucion = resolverVogel(
+            datos.filasFinal, datos.columnasFinal,
+            datos.costos, datos.oferta, datos.demanda,
+            datos.ajusteFicticio
+        );
+
     } else {
-        nombreMetodo = 'Método del Costo Mínimo';
-        solucion = ejecutarCostoMinimo(
-            validacion.R_final, 
-            validacion.C_final, 
-            validacion.matrizCostosFinal, 
-            validacion.ofertaFinal, 
-            validacion.demandaFinal, 
-            validacion.ajusteFicticio
+        // Valor por defecto: "costominimo"
+        nombreMetodo = "Metodo del Costo Minimo";
+        solucion = resolverCostoMinimo(
+            datos.filasFinal, datos.columnasFinal,
+            datos.costos, datos.oferta, datos.demanda,
+            datos.ajusteFicticio
         );
     }
 
-    renderizarResultados(solucion, validacion, nombreMetodo);
+    mostrarResultados(solucion, datos, nombreMetodo);
 }
 
-/**
- * ALGORITMO: Método de la Esquina Noroeste
- */
-function ejecutarEsquinaNoroeste(R, C, costos, oferta, demanda, ajusteFicticio) {
-    let ofertaRestante = [...oferta];
-    let demandaRestante = [...demanda];
-    let asignacion = Array.from({ length: R }, () => Array(C).fill(0));
-    let pasos = [];
 
-    let i = 0; // Origen (fila)
-    let j = 0; // Destino (columna)
-    let pasoNum = 1;
+/* ==========================================================================
+   4. ALGORITMO: ESQUINA NOROESTE
+   --------------------------------------------------------------------------
+   Idea:
+     - Siempre empezamos en la celda superior izquierda (i=0, j=0).
+     - Asignamos el mínimo entre la oferta restante de la fila y la demanda
+       restante de la columna.
+     - Si se agotó la fila, bajamos (i++).
+       Si se agotó la columna, avanzamos a la derecha (j++).
+       Si se agotaron las dos al mismo tiempo, avanzamos en diagonal (i++, j++).
+     - Repetimos hasta haber asignado toda la tabla.
+
+   Inicio del bloque ESQUINA NOROESTE
+   ========================================================================== */
+
+function resolverEsquinaNoroeste(filas, columnas, costos, oferta, demanda, ajusteFicticio) {
+    const ofertaRest  = [...oferta];
+    const demandaRest = [...demanda];
+    const asignacion  = crearMatrizCeros(filas, columnas);
+    const pasos       = [];
+
+    let i = 0;   // fila actual (origen)
+    let j = 0;   // columna actual (destino)
+    let numeroPaso = 1;
     let costoTotal = 0;
 
-    while (i < R && j < C) {
-        const curI = i;
-        const curJ = j;
-        const dispO = ofertaRestante[curI];
-        const dispD = demandaRestante[curJ];
+    while (i < filas && j < columnas) {
+        const dispO    = ofertaRest[i];
+        const dispD    = demandaRest[j];
+        const cantidad = Math.min(dispO, dispD);    // asignamos lo máximo posible
+        const costoUnit = costos[i][j];
+        const subtotal  = redondear(cantidad * costoUnit);
 
-        // Cantidad a asignar: lo mínimo disponible en la esquina noroeste
-        const cantidad = Math.min(dispO, dispD);
-        const costoUnit = costos[curI][curJ];
-        const subtotal = cantidad * costoUnit;
+        asignacion[i][j] = cantidad;
+        costoTotal = redondear(costoTotal + subtotal);
+        ofertaRest[i]  = redondear(ofertaRest[i]  - cantidad);
+        demandaRest[j] = redondear(demandaRest[j] - cantidad);
 
-        asignacion[curI][curJ] = cantidad;
-        costoTotal += subtotal;
+        const esFic = esCeldaFicticia(i, j, ajusteFicticio);
+        const nO = `O${i + 1}`;
+        const nD = `D${j + 1}`;
+        let detalle = "";
 
-        ofertaRestante[curI] -= cantidad;
-        demandaRestante[curJ] -= cantidad;
-
-        // Comprobación de si es celda ficticia
-        const esFilaFicticia = (ajusteFicticio && ajusteFicticio.tipo === 'fila' && curI === ajusteFicticio.indice);
-        const esColFicticia = (ajusteFicticio && ajusteFicticio.tipo === 'columna' && curJ === ajusteFicticio.indice);
-        const esCeldaFicticia = esFilaFicticia || esColFicticia;
-
-        let nombreOrigen = `O${curI + 1}`;
-        let nombreDestino = `D${curJ + 1}`;
-        if (esFilaFicticia) nombreOrigen += ' [Fic]';
-        if (esColFicticia) nombreDestino += ' [Fic]';
-
-        let motivo = '';
-        let proxCelda = '';
-
-        // Determinación del siguiente movimiento
-        if (ofertaRestante[curI] === 0 && demandaRestante[curJ] === 0) {
-            if (curI === R - 1 && curJ === C - 1) {
-                motivo = `Se completaron simultáneamente la oferta de ${nombreOrigen} y la demanda de ${nombreDestino}. Fin de la asignación.`;
-                proxCelda = 'Fin del problema';
+        // Determinamos el siguiente movimiento según qué se agotó
+        if (ofertaRest[i] === 0 && demandaRest[j] === 0) {
+            if (i < filas - 1 && j < columnas - 1) {
+                detalle = `Empate: se agotaron ${nO} y ${nD}; avanzamos en diagonal a (O${i+2}, D${j+2}).`;
+                i++; j++;
+            } else if (i < filas - 1) {
+                detalle = `Se agotaron ${nO} y ${nD}; bajamos a O${i+2}.`;
                 i++;
+            } else if (j < columnas - 1) {
+                detalle = `Se agotaron ${nO} y ${nD}; pasamos a D${j+2}.`;
                 j++;
-            } else if (curI < R - 1 && curJ < C - 1) {
-                motivo = `Empate: Se agotaron tanto la oferta de ${nombreOrigen} como la demanda de ${nombreDestino}. Se avanza en diagonal a O${curI + 2} y D${curJ + 2}.`;
-                proxCelda = `O${curI + 2} → D${curJ + 2}`;
-                i++;
-                j++;
-            } else if (curI < R - 1) {
-                motivo = `Se agotaron oferta y demanda. Se avanza a la siguiente fila O${curI + 2}.`;
-                proxCelda = `O${curI + 2} → D${curJ + 1}`;
-                i++;
             } else {
-                motivo = `Se agotaron oferta y demanda. Se avanza a la siguiente columna D${curJ + 2}.`;
-                proxCelda = `O${curI + 1} → D${curJ + 2}`;
-                j++;
+                detalle = `Se completaron ${nO} y ${nD}. Fin del algoritmo.`;
+                i++; j++;
             }
-        } else if (ofertaRestante[curI] === 0) {
-            motivo = `Oferta de ${nombreOrigen} agotada (restante: 0). Se avanza hacia abajo a O${curI + 2}.`;
-            proxCelda = `O${curI + 2} → D${curJ + 1}`;
+        } else if (ofertaRest[i] === 0) {
+            detalle = `Se agoto la oferta de ${nO}; bajamos a O${i+2}.`;
             i++;
         } else {
-            motivo = `Demanda de ${nombreDestino} satisfecha (restante: 0). Se avanza hacia la derecha a D${curJ + 2}.`;
-            proxCelda = `O${curI + 1} → D${curJ + 2}`;
+            detalle = `Se cubrio la demanda de ${nD}; avanzamos a D${j+2}.`;
             j++;
         }
 
-        if (esCeldaFicticia) {
-            motivo += ' (Asignación en elemento ficticio con costo $0)';
-        }
+        if (esFic) detalle += " (Celda ficticia, costo $0)";
 
         pasos.push({
-            paso: pasoNum++,
-            celdaNombre: `${nombreOrigen} → ${nombreDestino}`,
-            esFicticia: esCeldaFicticia,
-            dispO: dispO,
-            dispD: dispD,
-            cantidad: cantidad,
-            costoUnit: costoUnit,
-            subtotal: subtotal,
-            motivo: motivo,
-            proxCelda: proxCelda
+            paso: numeroPaso++,
+            celda: `${nO} -> ${nD}${esFic ? " [Fic]" : ""}`,
+            dispO, dispD, cantidad, costoUnit, subtotal,
+            detalle
         });
     }
 
-    return {
-        asignacion,
-        costoTotal,
-        pasos
-    };
+    return { asignacion, costoTotal, pasos };
 }
 
-/**
- * ALGORITMO: Método del Costo Mínimo (Opcional / Comparativo)
- */
-function ejecutarCostoMinimo(R, C, costos, oferta, demanda, ajusteFicticio) {
-    let ofertaRestante = [...oferta];
-    let demandaRestante = [...demanda];
-    let asignacion = Array.from({ length: R }, () => Array(C).fill(0));
-    let pasos = [];
+/* Fin del bloque ESQUINA NOROESTE ========================================== */
+
+
+/* ==========================================================================
+   5. ALGORITMO: COSTO MÍNIMO
+   --------------------------------------------------------------------------
+   Idea:
+     - En cada iteración recorremos TODA la matriz buscando la celda
+       disponible con el menor costo unitario.
+     - Solo consideramos celdas donde quede oferta en la fila Y demanda
+       en la columna.
+     - Asignamos el mínimo entre oferta y demanda de esa celda.
+     - Eliminamos la fila o columna agotada y repetimos.
+
+   Inicio del bloque COSTO MÍNIMO
+   ========================================================================== */
+
+function resolverCostoMinimo(filas, columnas, costos, oferta, demanda, ajusteFicticio) {
+    const ofertaRest  = [...oferta];
+    const demandaRest = [...demanda];
+    const asignacion  = crearMatrizCeros(filas, columnas);
+    const pasos       = [];
+    let numeroPaso = 1;
     let costoTotal = 0;
-    let pasoNum = 1;
-
-    let celdasDisponibles = [];
-    for (let i = 0; i < R; i++) {
-        for (let j = 0; j < C; j++) {
-            celdasDisponibles.push({ r: i, c: j, costo: costos[i][j] });
-        }
-    }
-
-    celdasDisponibles.sort((a, b) => a.costo - b.costo);
 
     while (true) {
-        let celdaElegida = null;
-        for (let item of celdasDisponibles) {
-            if (ofertaRestante[item.r] > 0 && demandaRestante[item.c] > 0) {
-                celdaElegida = item;
-                break;
+        // Buscamos la celda disponible con el menor costo
+        let mejFila = -1;
+        let mejCol  = -1;
+        let minCosto = Infinity;
+
+        for (let i = 0; i < filas; i++) {
+            if (ofertaRest[i] <= 0) continue;
+            for (let j = 0; j < columnas; j++) {
+                if (demandaRest[j] <= 0) continue;
+                if (costos[i][j] < minCosto) {
+                    minCosto = costos[i][j];
+                    mejFila  = i;
+                    mejCol   = j;
+                }
             }
         }
 
-        if (!celdaElegida) break;
+        // Si no encontramos ninguna celda disponible, terminamos
+        if (mejFila === -1) break;
 
-        const { r, c, costo } = celdaElegida;
-        const cantidad = Math.min(ofertaRestante[r], demandaRestante[c]);
-        const subtotal = cantidad * costo;
+        const dispO    = ofertaRest[mejFila];
+        const dispD    = demandaRest[mejCol];
+        const cantidad = Math.min(dispO, dispD);
+        const subtotal = redondear(cantidad * minCosto);
 
-        asignacion[r][c] = cantidad;
-        costoTotal += subtotal;
+        asignacion[mejFila][mejCol] = cantidad;
+        costoTotal = redondear(costoTotal + subtotal);
+        ofertaRest[mejFila]  = redondear(ofertaRest[mejFila]  - cantidad);
+        demandaRest[mejCol]  = redondear(demandaRest[mejCol]  - cantidad);
 
-        const dispO = ofertaRestante[r];
-        const dispD = demandaRestante[c];
+        const esFic = esCeldaFicticia(mejFila, mejCol, ajusteFicticio);
+        const nO = `O${mejFila + 1}`;
+        const nD = `D${mejCol  + 1}`;
+        let detalle = `Menor costo disponible ($${minCosto}). `;
 
-        ofertaRestante[r] -= cantidad;
-        demandaRestante[c] -= cantidad;
-
-        const esFilaFicticia = (ajusteFicticio && ajusteFicticio.tipo === 'fila' && r === ajusteFicticio.indice);
-        const esColFicticia = (ajusteFicticio && ajusteFicticio.tipo === 'columna' && c === ajusteFicticio.indice);
-        const esCeldaFicticia = esFilaFicticia || esColFicticia;
-
-        let nombreOrigen = `O${r + 1}` + (esFilaFicticia ? ' [Fic]' : '');
-        let nombreDestino = `D${c + 1}` + (esColFicticia ? ' [Fic]' : '');
-
-        let motivo = '';
-        if (ofertaRestante[r] === 0 && demandaRestante[c] === 0) {
-            motivo = `Se completaron tanto la oferta de ${nombreOrigen} como la demanda de ${nombreDestino}.`;
-        } else if (ofertaRestante[r] === 0) {
-            motivo = `Se agotó la oferta de ${nombreOrigen}.`;
+        if (ofertaRest[mejFila] === 0 && demandaRest[mejCol] === 0) {
+            detalle += `Se agotaron ${nO} y ${nD}.`;
+        } else if (ofertaRest[mejFila] === 0) {
+            detalle += `Se agoto la oferta de ${nO}.`;
         } else {
-            motivo = `Se satisfizo la demanda de ${nombreDestino}.`;
+            detalle += `Se cubrio la demanda de ${nD}.`;
         }
-
-        if (esCeldaFicticia) motivo += ' (Asignación en elemento ficticio)';
+        if (esFic) detalle += " (Celda ficticia)";
 
         pasos.push({
-            paso: pasoNum++,
-            celdaNombre: `${nombreOrigen} → ${nombreDestino}`,
-            esFicticia: esCeldaFicticia,
-            dispO: dispO,
-            dispD: dispD,
-            cantidad: cantidad,
-            costoUnit: costo,
-            subtotal: subtotal,
-            motivo: motivo,
-            proxCelda: 'Siguiente menor costo disponible'
+            paso: numeroPaso++,
+            celda: `${nO} -> ${nD}${esFic ? " [Fic]" : ""}`,
+            dispO, dispD, cantidad, costoUnit: minCosto, subtotal,
+            detalle
         });
     }
 
-    return {
-        asignacion,
-        costoTotal,
-        pasos
-    };
+    return { asignacion, costoTotal, pasos };
 }
 
-/**
- * Renderiza la interfaz visual completa de resultados
- */
-function renderizarResultados(solucion, datos, nombreMetodo) {
+/* Fin del bloque COSTO MÍNIMO ============================================= */
+
+
+/* ==========================================================================
+   6. ALGORITMO: MÉTODO DE VOGEL (VAM - Vogel's Approximation Method)
+   --------------------------------------------------------------------------
+   Idea:
+     - En cada iteración calculamos la PENALIDAD de cada fila y columna.
+       La penalidad es la diferencia entre el menor y el segundo menor
+       costo disponible en esa fila o columna.
+       (Si solo hay un costo disponible, la penalidad es ese mismo costo.)
+     - Elegimos la fila o columna con la mayor penalidad.
+     - En esa fila/columna asignamos el máximo posible a la celda de menor costo.
+     - Eliminamos la fila o columna que se agotó y repetimos.
+     Esta estrategia tiende a dar una solución inicial más cercana al óptimo
+     que los otros dos métodos.
+
+   Inicio del bloque VOGEL
+   ========================================================================== */
+
+function resolverVogel(filas, columnas, costos, oferta, demanda, ajusteFicticio) {
+    const ofertaRest  = [...oferta];
+    const demandaRest = [...demanda];
+    const asignacion  = crearMatrizCeros(filas, columnas);
+    const pasos       = [];
+
+    // filasActivas[i] = true  mientras la fila i todavía tiene oferta > 0
+    // colsActivas[j]  = true  mientras la columna j todavía tiene demanda > 0
+    const filasActivas = new Array(filas).fill(true);
+    const colsActivas  = new Array(columnas).fill(true);
+
+    let numeroPaso = 1;
+    let costoTotal = 0;
+
+    /*
+     * calcularPenalidades():
+     * Para cada fila y columna activa, buscamos el primer y segundo menor costo.
+     * La penalidad = segundo_menor - primer_menor.
+     * Si la fila/columna tiene solo una celda disponible, la penalidad = ese costo.
+     * Devolvemos un arreglo de objetos { tipo, indice, penalidad, mejorCelda }.
+     */
+    function calcularPenalidades() {
+        const lista = [];
+
+        // Penalidades de filas
+        for (let i = 0; i < filas; i++) {
+            if (!filasActivas[i]) continue;
+
+            const costosDisponibles = [];
+            for (let j = 0; j < columnas; j++) {
+                if (colsActivas[j]) costosDisponibles.push({ costo: costos[i][j], col: j });
+            }
+            if (costosDisponibles.length === 0) continue;
+
+            costosDisponibles.sort((a, b) => a.costo - b.costo);
+            const menor        = costosDisponibles[0];
+            const segundoMenor = costosDisponibles[1] || menor; // si solo hay uno, penalidad = ese costo
+            const penalidad    = redondear(segundoMenor.costo - menor.costo);
+
+            lista.push({
+                tipo:       "fila",
+                indice:     i,
+                penalidad,
+                mejorFila:  i,
+                mejorCol:   menor.col,
+                mejorCosto: menor.costo,
+                // Texto descriptivo para mostrar en el paso a paso
+                descripcion: `Fila O${i+1}: penalidad = $${segundoMenor.costo} - $${menor.costo} = $${penalidad}`
+            });
+        }
+
+        // Penalidades de columnas
+        for (let j = 0; j < columnas; j++) {
+            if (!colsActivas[j]) continue;
+
+            const costosDisponibles = [];
+            for (let i = 0; i < filas; i++) {
+                if (filasActivas[i]) costosDisponibles.push({ costo: costos[i][j], fila: i });
+            }
+            if (costosDisponibles.length === 0) continue;
+
+            costosDisponibles.sort((a, b) => a.costo - b.costo);
+            const menor        = costosDisponibles[0];
+            const segundoMenor = costosDisponibles[1] || menor;
+            const penalidad    = redondear(segundoMenor.costo - menor.costo);
+
+            lista.push({
+                tipo:       "columna",
+                indice:     j,
+                penalidad,
+                mejorFila:  menor.fila,
+                mejorCol:   j,
+                mejorCosto: menor.costo,
+                descripcion: `Col D${j+1}: penalidad = $${segundoMenor.costo} - $${menor.costo} = $${penalidad}`
+            });
+        }
+
+        return lista;
+    }
+
+    // Bucle principal de Vogel
+    while (true) {
+        const penalidades = calcularPenalidades();
+        if (penalidades.length === 0) break;
+
+        // Elegimos la fila o columna con la mayor penalidad
+        // En caso de empate, priorizamos la que tenga el menor costo de asignación
+        penalidades.sort((a, b) => {
+            if (b.penalidad !== a.penalidad) return b.penalidad - a.penalidad;
+            return a.mejorCosto - b.mejorCosto;
+        });
+        const elegida = penalidades[0];
+
+        const fi = elegida.mejorFila;
+        const fj = elegida.mejorCol;
+
+        // Si por alguna razón la celda elegida ya no tiene oferta/demanda, salimos
+        if (ofertaRest[fi] <= 0 || demandaRest[fj] <= 0) break;
+
+        const dispO    = ofertaRest[fi];
+        const dispD    = demandaRest[fj];
+        const cantidad = Math.min(dispO, dispD);
+        const costoUnit = costos[fi][fj];
+        const subtotal  = redondear(cantidad * costoUnit);
+
+        asignacion[fi][fj] = cantidad;
+        costoTotal = redondear(costoTotal + subtotal);
+        ofertaRest[fi]  = redondear(ofertaRest[fi]  - cantidad);
+        demandaRest[fj] = redondear(demandaRest[fj] - cantidad);
+
+        // Desactivamos la fila o columna agotada
+        if (ofertaRest[fi] <= 0)  filasActivas[fi] = false;
+        if (demandaRest[fj] <= 0) colsActivas[fj]  = false;
+
+        const esFic = esCeldaFicticia(fi, fj, ajusteFicticio);
+        const nO = `O${fi + 1}`;
+        const nD = `D${fj + 1}`;
+
+        // Construimos el detalle para mostrar en el paso a paso
+        // Incluimos la penalidad que motivó la elección
+        const todasLasPenalidades = penalidades.map((p) => p.descripcion).join(" | ");
+        let detalle = `Mayor penalidad: ${elegida.descripcion}. Asignacion en celda de menor costo ($${costoUnit}). `;
+
+        if (ofertaRest[fi] === 0 && demandaRest[fj] === 0) {
+            detalle += `Se agotaron ${nO} y ${nD}.`;
+        } else if (ofertaRest[fi] === 0) {
+            detalle += `Se agoto la oferta de ${nO}; esa fila queda inactiva.`;
+        } else {
+            detalle += `Se cubrio la demanda de ${nD}; esa columna queda inactiva.`;
+        }
+        if (esFic) detalle += " (Celda ficticia, costo $0)";
+
+        pasos.push({
+            paso: numeroPaso++,
+            celda: `${nO} -> ${nD}${esFic ? " [Fic]" : ""}`,
+            dispO, dispD, cantidad, costoUnit, subtotal,
+            detalle,
+            // Campo extra solo para Vogel: guardamos todas las penalidades calculadas en este paso
+            penalidades: todasLasPenalidades
+        });
+    }
+
+    return { asignacion, costoTotal, pasos };
+}
+
+/* Fin del bloque VOGEL ===================================================== */
+
+
+/* ==========================================================================
+   7. RENDERIZADO DE RESULTADOS
+   Función compartida por los 3 métodos. Recibe la solución y genera el HTML
+   con: resumen de métricas, matriz de asignaciones, fórmula Z y paso a paso.
+   ========================================================================== */
+
+function mostrarResultados(solucion, datos, nombreMetodo) {
     const { asignacion, costoTotal, pasos } = solucion;
-    const { 
-        R_final: R, 
-        C_final: C, 
-        matrizCostosFinal: costos, 
-        ofertaFinal: oferta, 
-        demandaFinal: demanda, 
-        totalEquilibrado, 
-        ajusteFicticio 
-    } = datos;
+    const { filasFinal, columnasFinal, costos, oferta, demanda, totalEquilibrado, ajusteFicticio } = datos;
 
-    let casillasAsignadas = 0;
-    let desgloseCalculo = [];
-
-    for (let i = 0; i < R; i++) {
-        for (let j = 0; j < C; j++) {
+    // Contamos las celdas usadas y armamos la suma de la fórmula Z
+    let enviosRealizados = 0;
+    const terminosZ = [];
+    for (let i = 0; i < filasFinal; i++) {
+        for (let j = 0; j < columnasFinal; j++) {
             if (asignacion[i][j] > 0) {
-                casillasAsignadas++;
-                const esFic = (ajusteFicticio && (
-                    (ajusteFicticio.tipo === 'fila' && i === ajusteFicticio.indice) ||
-                    (ajusteFicticio.tipo === 'columna' && j === ajusteFicticio.indice)
-                ));
-                desgloseCalculo.push(`(${asignacion[i][j]} × $${costos[i][j]}${esFic ? ' [Fic]' : ''})`);
+                enviosRealizados++;
+                terminosZ.push(`(${asignacion[i][j]} x $${costos[i][j]})`);
             }
         }
     }
 
-    let desgloseSuma = desgloseCalculo.join(' + ');
-
+    // --- Encabezado con las tres tarjetas de métricas ---
     let html = `
-        <div class="card-resultado animar-entrada">
-            <div class="resultado-header">
-                <div class="badge-metodo">${nombreMetodo}</div>
-                <h2>Solución Factible Obtenida</h2>
-                <p class="resultado-sub">Asignaciones completadas satisfaciendo la totalidad de los requerimientos de transporte.</p>
+        <section class="panel-resultado">
+            <h2>Resultado - ${nombreMetodo}</h2>
+
+            <div class="resumen-resultado">
+                <div class="dato-resumen dato-destacado">
+                    <span>Costo total (Z)</span>
+                    <strong>$${costoTotal.toLocaleString("es-AR")}</strong>
+                </div>
+                <div class="dato-resumen">
+                    <span>Total de unidades</span>
+                    <strong>${totalEquilibrado.toLocaleString("es-AR")}</strong>
+                </div>
+                <div class="dato-resumen">
+                    <span>Celdas con envio</span>
+                    <strong>${enviosRealizados}</strong>
+                </div>
             </div>
     `;
 
-    // =========================================================================
-    // COMENTARIO / NOTA DE CREACIÓN FICTICIA (REQUERIMIENTO OBLIGATORIO)
-    // =========================================================================
-    if (ajusteFicticio) {
+    // --- Matriz de asignaciones ---
+    html += `<h3>Matriz de asignaciones</h3><div class="tabla-scroll"><table><thead><tr><th>Origenes \\ Destinos</th>`;
+
+    for (let j = 0; j < columnasFinal; j++) {
+        const esFicCol = ajusteFicticio && ajusteFicticio.tipo === "columna" && j === ajusteFicticio.indice;
         html += `
-            <div class="card-aviso-ficticio animar-entrada">
-                <div class="ficticio-header">
-                    <span class="ficticio-tag">Balanceo Automático Realizado</span>
-                    <span class="ficticio-tipo-badge">${ajusteFicticio.tipo === 'columna' ? 'Columna Ficticia Creada' : 'Fila Ficticia Creada'}</span>
-                </div>
-                <div class="ficticio-cuerpo">
-                    <div class="ficticio-icono">⚖️</div>
-                    <div class="ficticio-info">
-                        <h4>Nota Explicativa: Fue necesaria la creación de un elemento ficticio por falta de coincidencia</h4>
-                        <p class="ficticio-comentario-texto">${ajusteFicticio.comentario}</p>
-                        <div class="ficticio-datos-grid">
-                            <div class="ficticio-dato-item">
-                                <span class="lbl">Oferta Original:</span>
-                                <span class="val val-o">${ajusteFicticio.totalOOriginal}</span>
-                            </div>
-                            <div class="ficticio-dato-item">
-                                <span class="lbl">Demanda Original:</span>
-                                <span class="val val-d">${ajusteFicticio.totalDOriginal}</span>
-                            </div>
-                            <div class="ficticio-dato-item destaque-dif">
-                                <span class="lbl">Diferencia Nivelada:</span>
-                                <span class="val val-f">${ajusteFicticio.cantidad} unidades</span>
-                            </div>
-                            <div class="ficticio-dato-item">
-                                <span class="lbl">Costo Asignado:</span>
-                                <span class="val">$0 / unidad</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <th class="${esFicCol ? "th-ficticio" : ""}">
+                D${j + 1}${esFicCol ? '<br><span class="etiqueta-ficticio">(Ficticio)</span>' : ""}
+            </th>
         `;
     }
+    html += `<th>Oferta</th></tr></thead><tbody>`;
 
-    // TARJETAS DE MÉTRICAS CLAVE
-    html += `
-            <div class="metricas-grid">
-                <div class="metrica-card destaque-costo">
-                    <span class="metrica-etiqueta">Costo Total del Transporte (Z)</span>
-                    <span class="metrica-valor">$${costoTotal.toLocaleString('es-AR')}</span>
-                    <span class="metrica-desc">Función objetivo final</span>
-                </div>
-                <div class="metrica-card">
-                    <span class="metrica-etiqueta">Total Unidades Transportadas</span>
-                    <span class="metrica-valor">${totalEquilibrado.toLocaleString('es-AR')}</span>
-                    <span class="metrica-desc">${ajusteFicticio ? 'Incluye unidades ficticias' : 'Oferta y Demanda exactas'}</span>
-                </div>
-                <div class="metrica-card">
-                    <span class="metrica-etiqueta">Celdas Asignadas</span>
-                    <span class="metrica-valor">${casillasAsignadas}</span>
-                    <span class="metrica-desc">m + n - 1 = ${R + C - 1}</span>
-                </div>
-            </div>
-
-            <!-- MATRIZ DE ASIGNACIONES -->
-            <div class="seccion-resultado">
-                <h3>Matriz de Asignaciones</h3>
-                <p class="seccion-instruccion">
-                    Envíos calculados. Las celdas resaltadas indican envíos asignados [<b>Cantidad</b> / Costo / Subtotal].
-                    ${ajusteFicticio ? '<br><span class="nota-fic-alerta">✦ Las celdas marcadas como <b>[Ficticio]</b> tienen costo de envío $0 y equilibran el sistema.</span>' : ''}
-                </p>
-                
-                <div class="tabla-responsiva">
-                    <table class="matriz-asignaciones">
-                        <thead>
-                            <tr>
-                                <th>Orígenes \\ Destinos</th>
-    `;
-
-    for (let j = 0; j < C; j++) {
-        const esColFic = (ajusteFicticio && ajusteFicticio.tipo === 'columna' && j === ajusteFicticio.indice);
-        html += `<th class="${esColFic ? 'th-col-ficticia' : ''}">
-                    D${j + 1}${esColFic ? '<br><span class="pill-fic">Ficticio</span>' : ''}
-                 </th>`;
-    }
-    html += `<th>Oferta Satisfecha</th><th>Oferta Total</th></tr></thead><tbody>`;
-
-    for (let i = 0; i < R; i++) {
+    for (let i = 0; i < filasFinal; i++) {
+        const esFicFila = ajusteFicticio && ajusteFicticio.tipo === "fila" && i === ajusteFicticio.indice;
         let sumaFila = 0;
-        const esFilaFic = (ajusteFicticio && ajusteFicticio.tipo === 'fila' && i === ajusteFicticio.indice);
 
-        html += `<tr><th class="${esFilaFic ? 'th-fila-ficticia' : ''}">
-                    O${i + 1}${esFilaFic ? '<br><span class="pill-fic">Ficticio</span>' : ''}
-                 </th>`;
+        html += `
+            <tr>
+                <th class="${esFicFila ? "th-ficticio" : ""}">
+                    O${i + 1}${esFicFila ? '<br><span class="etiqueta-ficticio">(Ficticio)</span>' : ""}
+                </th>
+        `;
 
-        for (let j = 0; j < C; j++) {
-            const cant = asignacion[i][j];
-            sumaFila += cant;
-            const esCeldaFic = (
-                (ajusteFicticio && ajusteFicticio.tipo === 'fila' && i === ajusteFicticio.indice) ||
-                (ajusteFicticio && ajusteFicticio.tipo === 'columna' && j === ajusteFicticio.indice)
-            );
+        for (let j = 0; j < columnasFinal; j++) {
+            const cant    = asignacion[i][j];
+            sumaFila = redondear(sumaFila + cant);
+            const esFic   = esCeldaFicticia(i, j, ajusteFicticio);
 
             if (cant > 0) {
-                const sub = cant * costos[i][j];
+                const sub = redondear(cant * costos[i][j]);
                 html += `
-                    <td class="td-asignada ${esCeldaFic ? 'td-asignada-fic' : ''}">
-                        <div class="badge-asignacion ${esCeldaFic ? 'badge-fic' : ''}">${cant}</div>
-                        <div class="detalle-costo-celda">Costo: $${costos[i][j]} ${esCeldaFic ? '(Fic)' : ''}</div>
-                        <div class="subtotal-celda">Sub: $${sub}</div>
+                    <td class="${esFic ? "celda-asignada-ficticia" : "celda-asignada"}">
+                        <div class="cant-asignada">${cant}</div>
+                        <div class="detalle-celda">$${costos[i][j]} c/u (Sub: $${sub})</div>
                     </td>
                 `;
             } else {
                 html += `
-                    <td class="td-no-asignada ${esCeldaFic ? 'td-no-asignada-fic' : ''}">
-                        <span class="valor-cero">-</span>
-                        <span class="costo-referencia">($${costos[i][j]})</span>
+                    <td class="celda-vacia">
+                        -<br>($${costos[i][j]})
                     </td>
                 `;
             }
         }
-        html += `
-            <td class="td-total-cumplido">${sumaFila}</td>
-            <td class="td-total-esperado">${oferta[i]}</td>
-        </tr>`;
+        html += `<td class="celda-total">${sumaFila} / ${oferta[i]}</td></tr>`;
     }
 
-    // Fila resumen de demandas
-    html += `<tr><th>Demanda Satisfecha</th>`;
-    for (let j = 0; j < C; j++) {
+    // Fila de totales de demanda
+    html += `<tr><th>Demanda</th>`;
+    for (let j = 0; j < columnasFinal; j++) {
         let sumaCol = 0;
-        for (let i = 0; i < R; i++) {
-            sumaCol += asignacion[i][j];
-        }
-        html += `<td class="td-total-cumplido">${sumaCol}</td>`;
+        for (let i = 0; i < filasFinal; i++) sumaCol = redondear(sumaCol + asignacion[i][j]);
+        html += `<td class="celda-total">${sumaCol} / ${demanda[j]}</td>`;
     }
-    html += `<td colspan="2" class="td-balance-final">✓ Equilibrado</td></tr>`;
+    html += `<td class="celda-balance-final">${totalEquilibrado}</td></tr>`;
+    html += `</tbody></table></div>`;
 
-    // Fila esperada de demandas
-    html += `<tr><th>Demanda Total</th>`;
-    for (let j = 0; j < C; j++) {
-        html += `<td class="td-total-esperado">${demanda[j]}</td>`;
-    }
-    html += `<td colspan="2" class="td-balance-final">${totalEquilibrado}</td></tr>`;
-
-    html += `</tbody></table></div></div>`;
-
-    // DESGLOSE MATEMÁTICO DEL COSTO
+    // --- Fórmula del costo total ---
     html += `
-        <div class="seccion-resultado">
-            <h3>Cálculo Detallado del Costo Total</h3>
-            <div class="formula-caja">
-                <div class="formula-titulo">Fórmula: Z = Σ (Asignación<sub>i,j</sub> × Costo<sub>i,j</sub>)</div>
-                <div class="formula-desglose">
-                    Z = ${desgloseSuma || '0'}
-                </div>
-                <div class="formula-resultado">
-                    <b>Z = $${costoTotal.toLocaleString('es-AR')}</b>
-                </div>
-            </div>
+        <h3>Calculo del costo total (Z)</h3>
+        <div class="caja-formula">
+            <div class="formula-texto">Z = ${terminosZ.length > 0 ? terminosZ.join(" + ") : "0"}</div>
+            <div class="formula-total">Z = $${costoTotal.toLocaleString("es-AR")}</div>
         </div>
     `;
 
-    // TABLA PASO A PASO
+    // --- Tabla paso a paso ---
     html += `
-        <div class="seccion-resultado">
-            <h3>Paso a Paso de la Asignación (${nombreMetodo})</h3>
-            <p class="seccion-instruccion">Detalle cronológico de cada iteración realizada por el algoritmo:</p>
-            <div class="tabla-responsiva">
-                <table class="tabla-pasos">
-                    <thead>
-                        <tr>
-                            <th># Paso</th>
-                            <th>Celda</th>
-                            <th>Oferta Disp.</th>
-                            <th>Demanda Disp.</th>
-                            <th>Asignado = Mín(O, D)</th>
-                            <th>Costo Unit.</th>
-                            <th>Subtotal</th>
-                            <th>Decisión / Siguiente Paso</th>
-                        </tr>
-                    </thead>
-                    <tbody>
+        <h3>Paso a paso</h3>
+        <div class="tabla-scroll">
+            <table class="tabla-pasos">
+                <thead>
+                    <tr>
+                        <th>Paso</th>
+                        <th>Celda</th>
+                        <th>Oferta disp.</th>
+                        <th>Demanda disp.</th>
+                        <th>Asignado</th>
+                        <th>Costo unit.</th>
+                        <th>Subtotal</th>
+                    </tr>
+                </thead>
+                <tbody>
     `;
 
-    pasos.forEach(p => {
+    pasos.forEach((p) => {
         html += `
-            <tr class="${p.esFicticia ? 'tr-paso-ficticio' : ''}">
-                <td><span class="paso-num ${p.esFicticia ? 'paso-num-fic' : ''}">${p.paso}</span></td>
-                <td><b>${p.celdaNombre}</b></td>
+            <tr>
+                <td>${p.paso}</td>
+                <td><b>${p.celda}</b></td>
                 <td>${p.dispO}</td>
                 <td>${p.dispD}</td>
-                <td><span class="badge-asignado-paso ${p.esFicticia ? 'badge-asignado-fic' : ''}">${p.cantidad}</span></td>
+                <td><b>${p.cantidad}</b></td>
                 <td>$${p.costoUnit}</td>
-                <td><b>$${p.subtotal}</b></td>
-                <td class="td-motivo">${p.motivo}</td>
+                <td>$${p.subtotal}</td>
             </tr>
         `;
     });
 
-    html += `
-                    </tbody>
-                </table>
-            </div>
-        </div>
+    html += `</tbody></table></div></section>`;
 
-        <div class="acciones-finales">
-            <button class="btn btn-secundario" onclick="window.print()">
-                <span class="btn-icono">🖨</span> Imprimir / Exportar Reporte
-            </button>
-            <button class="btn btn-secundario" onclick="document.getElementById('contenedor-tabla').scrollIntoView({behavior:'smooth'})">
-                <span class="btn-icono">✏</span> Modificar Datos
-            </button>
-        </div>
-    </div>`;
-
-    const contenedorResultado = document.getElementById('resultado');
+    const contenedorResultado = document.getElementById("resultado");
     contenedorResultado.innerHTML = html;
-    contenedorResultado.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    contenedorResultado.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-/**
- * Muestra mensajes flotantes de alerta
- */
-function mostrarAlerta(mensaje, tipo = 'error') {
-    const contenedor = document.getElementById('mensaje-alerta');
-    if (!contenedor) return;
 
-    let icono = '⚠️';
-    if (tipo === 'info') icono = 'ℹ️';
-    if (tipo === 'success') icono = '✅';
+/* ==========================================================================
+   8. FUNCIONES AUXILIARES
+   ========================================================================== */
 
-    contenedor.className = `alerta alerta-${tipo} animar-entrada`;
-    contenedor.innerHTML = `<span class="alerta-icono">${icono}</span> <div class="alerta-texto">${mensaje}</div>`;
-    contenedor.style.display = 'flex';
+// Evita errores de coma flotante (ej: 0.1 + 0.2 = 0.30000000000000004)
+function redondear(numero) {
+    return Math.round(numero * 1000000) / 1000000;
 }
 
-/**
- * Oculta la caja de alerta
- */
-function limpiarAlerta() {
-    const contenedor = document.getElementById('mensaje-alerta');
-    if (contenedor) {
-        contenedor.innerHTML = '';
-        contenedor.style.display = 'none';
-        contenedor.className = 'alerta';
+// Crea una matriz de 'filas' x 'columnas' con todos los valores en 0
+function crearMatrizCeros(filas, columnas) {
+    const m = [];
+    for (let i = 0; i < filas; i++) {
+        m.push(new Array(columnas).fill(0));
     }
+    return m;
 }
 
-/**
- * Limpia los resultados previos
- */
+// Devuelve true si la coordenada (fila, col) pertenece a la fila o columna ficticia
+function esCeldaFicticia(fila, col, ajusteFicticio) {
+    if (!ajusteFicticio) return false;
+    if (ajusteFicticio.tipo === "fila"    && fila === ajusteFicticio.indice) return true;
+    if (ajusteFicticio.tipo === "columna" && col  === ajusteFicticio.indice) return true;
+    return false;
+}
+
+function mostrarAlerta(mensaje, tipo) {
+    const caja = document.getElementById("mensaje-alerta");
+    if (!caja) return;
+    caja.className   = `alerta alerta-${tipo}`;
+    caja.textContent = mensaje;
+}
+
+function limpiarAlerta() {
+    const caja = document.getElementById("mensaje-alerta");
+    if (!caja) return;
+    caja.textContent = "";
+    caja.className   = "alerta oculto";
+}
+
 function limpiarResultado() {
-    const contenedor = document.getElementById('resultado');
-    if (contenedor) contenedor.innerHTML = '';
+    const contenedor = document.getElementById("resultado");
+    if (contenedor) contenedor.innerHTML = "";
 }
 
-/**
- * Reinicia completamente el formulario para empezar de nuevo
- */
 function reiniciarTodo() {
-    document.getElementById('rows').value = '';
-    document.getElementById('cols').value = '';
-    document.getElementById('contenedor-tabla').innerHTML = '';
-    document.getElementById('controles-solucion').style.display = 'none';
-    const banner = document.getElementById('banner-balance');
-    if (banner) banner.style.display = 'none';
+    document.getElementById("input-filas").value    = "";
+    document.getElementById("input-columnas").value = "";
+    document.getElementById("contenedor-tabla").innerHTML = "";
+    document.getElementById("panel-metodo").classList.add("oculto");
+    document.getElementById("estado-balance").classList.add("oculto");
+
+    totalFilas    = 0;
+    totalColumnas = 0;
+
     limpiarAlerta();
     limpiarResultado();
-    AppState.rows = 0;
-    AppState.cols = 0;
-    mostrarAlerta('Se ha reiniciado el formulario. Ingresa nuevas dimensiones de orígenes y destinos.', 'info');
+    mostrarAlerta("Formulario reiniciado. Ingresá nuevas dimensiones para empezar.", "info");
 }

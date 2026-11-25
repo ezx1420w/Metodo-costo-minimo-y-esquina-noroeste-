@@ -3,55 +3,81 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Problema de Transporte - Método de la Esquina Noroeste</title>
+    <title>Problema de Transporte - 7° 3°</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
     <div class="contenedor">
-        
-        <!-- ENCABEZADO -->
+
+        <!-- Encabezado con los datos del trabajo y los integrantes -->
         <header class="encabezado">
             <h1>Problema de Transporte</h1>
-            <p class="subtitulo">Método del Costo Mínimo - 7º 3º</p>
+            <p class="subtitulo">Esquina Noroeste, Costo Mínimo y Método de Vogel - 7° 3°</p>
             <p class="alumnos">Alumnos: Ezequiel, Veronica, Samaniego, Aguirre</p>
         </header>
 
-        <!-- SECCIÓN 1: DIMENSIONES -->
-        <div class="panel">
+        <!-- Paso 1: el usuario define cuántas filas (orígenes) y columnas (destinos) tiene el problema -->
+        <section class="panel">
             <h3>1. Dimensiones de la tabla</h3>
+
             <div class="fila-inputs">
-                <label>Orígenes: <input type="number" id="rows" min="1" placeholder="Ej: 3"></label>
-                <label>Destinos: <input type="number" id="cols" min="1" placeholder="Ej: 4"></label>
+                <label for="input-filas">
+                    Orígenes:
+                    <input type="number" id="input-filas" min="1" placeholder="Ej: 3">
+                </label>
+                <label for="input-columnas">
+                    Destinos:
+                    <input type="number" id="input-columnas" min="1" placeholder="Ej: 4">
+                </label>
             </div>
+
+            <!-- Botones manejados desde script.js con addEventListener (sin onclick) -->
             <div class="fila-botones">
-                <button class="btn btn-principal" onclick="generarTabla()">Crear Tabla</button>
-                <button class="btn" onclick="cargarEjemplo(false)">Cargar Ejemplo</button>
-                <button class="btn" onclick="cargarEjemplo(true)">Cargar Desbalanceado</button>
-                <button class="btn btn-borrar" onclick="reiniciarTodo()">Reiniciar</button>
+                <button type="button" id="btn-crear" class="btn btn-principal">Crear Tabla</button>
+                <button type="button" id="btn-ejemplo" class="btn">Cargar Ejemplo</button>
+                <button type="button" id="btn-desbalanceado" class="btn">Ejemplo Desbalanceado</button>
+                <button type="button" id="btn-reiniciar" class="btn btn-borrar">Reiniciar</button>
             </div>
-        </div>
+        </section>
 
-        <!-- ALERTAS Y ESTADO DE BALANCE -->
-        <div id="mensaje-alerta" class="alerta" style="display: none;"></div>
-        <div id="banner-balance" class="banner-status" style="display: none;"></div>
+        <!-- Avisos de validación y estado de equilibrio (oferta vs demanda) -->
+        <div id="mensaje-alerta" class="alerta oculto"></div>
+        <div id="estado-balance" class="estado-balance oculto"></div>
 
-        <!-- CONTENEDOR DE LA MATRIZ -->
+        <!-- Acá se inserta dinámicamente la matriz editable de costos, oferta y demanda -->
         <div id="contenedor-tabla"></div>
 
-        <!-- SECCIÓN 2: RESOLUCIÓN -->
-        <div id="controles-solucion" class="panel" style="display: none;">
+        <!-- Paso 2: aparece recién cuando la tabla ya fue creada -->
+        <section id="panel-metodo" class="panel oculto">
             <h3>2. Método de resolución</h3>
-            <div class="opciones-metodo">
-                <label><input type="radio" name="metodo" value="costominimo" checked> Costo Mínimo</label>
-                <label><input type="radio" name="metodo" value="noroeste"> Esquina Noroeste</label>
-            </div>
-            <div class="acciones-resolver">
-                <button class="btn btn-resolver" onclick="resolver()">Resolver Problema</button>
-            </div>
-        </div>
 
-        <!-- RESULTADOS -->
+            <!--
+                Tres opciones de método.
+                El valor de cada radio coincide exactamente con la clave que usa resolverProblema()
+                en script.js para elegir qué función llamar.
+            -->
+            <div class="opciones-metodo">
+                <label>
+                    <input type="radio" name="metodo" value="costominimo" checked>
+                    Costo Mínimo
+                </label>
+                <label>
+                    <input type="radio" name="metodo" value="noroeste">
+                    Esquina Noroeste
+                </label>
+                <label>
+                    <input type="radio" name="metodo" value="vogel">
+                    Metodo de Vogel
+                </label>
+            </div>
+
+            <div class="acciones-resolver">
+                <button type="button" id="btn-resolver" class="btn btn-resolver">Resolver Problema</button>
+            </div>
+        </section>
+
+        <!-- Acá se muestra la matriz resuelta, la fórmula Z y el paso a paso -->
         <div id="resultado"></div>
 
     </div>
